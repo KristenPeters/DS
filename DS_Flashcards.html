@@ -4,8 +4,209 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DS Flashcards — answer hidden until you flip</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2332;
+    --ink: #e8eef7;
+    --muted: #8b9bb4;
+    --accent: #7eb8ff;
+    --good: #3dcf8e;
+    --again: #ff6b7a;
+    --hard: #ffb020;
+    --card: #243044;
+    --line: #2e3d55;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+  header {
+    padding: 16px 20px 8px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  select, button {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button.primary { background: #2a4a78; border-color: #3d6aa8; }
+  button:hover { filter: brightness(1.08); }
+  .stats { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+  main { max-width: 720px; margin: 0 auto; padding: 8px 20px 40px; }
+  .stage { perspective: 1200px; min-height: 280px; }
+  .card {
+    position: relative;
+    min-height: 280px;
+    transform-style: preserve-3d;
+    transition: transform 0.45s ease;
+    cursor: pointer;
+  }
+  .card.flipped { transform: rotateY(180deg); }
+  .face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }
+  .back { transform: rotateY(180deg); background: #1e334d; }
+  .label {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .text { font-size: 1.25rem; line-height: 1.45; }
+  .tag {
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .hint { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 12px 0 16px; }
+  .grades { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .grades button { min-width: 88px; font-weight: 600; }
+  .again { background: #4a2230; border-color: #7a3344; color: #ffb3bc; }
+  .hard { background: #4a3a18; border-color: #7a5e22; color: #ffd27a; }
+  .good { background: #173a2c; border-color: #2a6a4e; color: #9be7c4; }
+  .easy { background: #1a3348; border-color: #3d6aa8; color: #b7d6ff; }
+  .done {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 28px;
+    text-align: center;
+    display: none;
+  }
+</style>
 </head>
 <body>
-<p>Use the downloaded DS_Flashcards.html from chat if GitHub shows a short file. Full 110-card app is in the workspace copy.</p>
+<header>
+  <h1>DS flashcards</h1>
+  <p class="sub">Question first. Answer stays hidden until you flip the card.</p>
+  <div class="row">
+    <select id="filter"></select>
+    <button id="shuffle">Shuffle</button>
+    <button id="restart">Restart deck</button>
+    <span class="stats" id="stats"></span>
+  </div>
+</header>
+<main>
+  <div id="quiz">
+    <div class="stage">
+      <div class="card" id="card">
+        <div class="face front">
+          <div class="label">Question — tap or press Space to flip</div>
+          <div class="text" id="front"></div>
+          <div class="tag" id="tag"></div>
+        </div>
+        <div class="face back">
+          <div class="label">Answer</div>
+          <div class="text" id="back"></div>
+        </div>
+      </div>
+    </div>
+    <p class="hint">Space / click = flip &nbsp;·&nbsp; 1 Again &nbsp;2 Hard &nbsp;3 Good &nbsp;4 Easy</p>
+    <div class="grades">
+      <button class="again" data-grade="again">Again</button>
+      <button class="hard" data-grade="hard">Hard</button>
+      <button class="good" data-grade="good">Good</button>
+      <button class="easy" data-grade="easy">Easy</button>
+    </div>
+  </div>
+  <div class="done" id="done">
+    <h2>Deck complete</h2>
+    <p id="summary"></p>
+    <button class="primary" id="againDeck">Study again</button>
+  </div>
+</main>
+<script src="cards.js"></script>
+<script>
+let deck = [];
+let i = 0;
+let flipped = false;
+let marks = {again:0, hard:0, good:0, easy:0};
+const filter = document.getElementById("filter");
+const tags = ["all", ...new Set(CARDS.map(c => c.tag))];
+tags.forEach(t => {
+  const o = document.createElement("option");
+  o.value = t;
+  o.textContent = t === "all" ? ("All topics (" + CARDS.length + ")") : t.split("::").pop();
+  filter.appendChild(o);
+});
+function build() {
+  const t = filter.value;
+  deck = CARDS.filter(c => t === "all" || c.tag === t).map(c => ({...c}));
+  i = 0; flipped = false;
+  marks = {again:0, hard:0, good:0, easy:0};
+  document.getElementById("quiz").style.display = "block";
+  document.getElementById("done").style.display = "none";
+  render();
+}
+function render() {
+  if (i >= deck.length) {
+    document.getElementById("quiz").style.display = "none";
+    document.getElementById("done").style.display = "block";
+    document.getElementById("summary").textContent =
+      `Again ${marks.again} · Hard ${marks.hard} · Good ${marks.good} · Easy ${marks.easy}`;
+    return;
+  }
+  const c = deck[i];
+  document.getElementById("front").textContent = c.front;
+  document.getElementById("back").textContent = c.back;
+  document.getElementById("tag").textContent = c.tag.split("::").pop() + "  ·  " + (i+1) + " / " + deck.length;
+  document.getElementById("card").classList.remove("flipped");
+  flipped = false;
+  document.getElementById("stats").textContent = (i+1) + " of " + deck.length;
+}
+function flip() {
+  flipped = !flipped;
+  document.getElementById("card").classList.toggle("flipped", flipped);
+}
+function grade(g) {
+  if (!flipped) { flip(); return; }
+  marks[g]++;
+  i++;
+  render();
+}
+document.getElementById("card").onclick = flip;
+document.getElementById("shuffle").onclick = () => {
+  for (let k = deck.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k+1));
+    [deck[k], deck[j]] = [deck[j], deck[k]];
+  }
+  i = 0; render();
+};
+document.getElementById("restart").onclick = build;
+document.getElementById("againDeck").onclick = build;
+filter.onchange = build;
+document.querySelectorAll("[data-grade]").forEach(b => b.onclick = () => grade(b.dataset.grade));
+document.addEventListener("keydown", e => {
+  if (e.code === "Space") { e.preventDefault(); flip(); }
+  if (e.key === "1") grade("again");
+  if (e.key === "2") grade("hard");
+  if (e.key === "3") grade("good");
+  if (e.key === "4") grade("easy");
+});
+build();
+</script>
 </body>
 </html>
